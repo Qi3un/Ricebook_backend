@@ -9,65 +9,48 @@ const Profile = require('./model.js').Profile
 
 const getArticles = (req, res) => {
 	var username = req.username
-	var key = req.params.id
-	if(key) {
-		console.log("key", key)
-		Post.find(function() {
-			return this.author === key || this.id === key
-		}).exec(function(err, items) {
-			if(err) {
-				console.error(err)
-				return res.sendStatus(500)
+	Profile.where({ username: username }).findOne(function(err, item) {
+		if(err) {
+			console.error(err)
+			return res.sendStatus(500)
+		}
+		else {
+			var follow = item.follow
+			if(follow.indexOf(username) === -1) {
+				follow.push(username) // don't forget user himself
 			}
-			else {
-				items = items.map(article => article = filter(article))
-				var payload = { articles: items }
-				return res.send(payload)
-			}
-		})
-	}
-	else {
-		var follow = []
-		Profile.where({ username: username }).findOne(function(err, item) {
-			if(err) {
-				console.error(err)
-				return res.sendStatus(500)
-			}
-			else {
-				var follow = item.follow
-				var articles = []
-				var count = 0
-				console.log("follow", follow)
-				follow.map(f => {
-					// console.log("follow", follow)
-					// console.log("count", count)
-					Profile.where(ObjectId(f)).findOne(function(err, item) {
-						var followUser = item.username
-						console.log("followUser", followUser)
-						Post.find({ author: followUser }, function(err, items) {
-							count++
-							console.log("items", items)
-							// console.log("articles", articles)
-							articles = articles.concat(items)
-							// console.log("articles", articles)
-							if(count === follow.length) {
-								console.log("search complete")
-								var payload = { articles: articles }
-								return res.send(payload)
-							}
-						})
+			var articles = []
+			var count = 0
+			console.log("follow", follow)
+			if(follow.length !== 0) {
+				follow.map(name => {
+					Post.find({ author: name }, function(err, items) {
+						count++
+						console.log("items", items)
+						articles = articles.concat(items)
+						if(count === follow.length) {
+							console.log("search complete")
+							var payload = { articles: articles }
+							return res.send(payload)
+						}
 					})
 				})
 			}
-		})
-	}
+			else {
+				return res.send({ articles: [] })
+			}
+		}
+	})
 }
 
 const updateArticle = (req, res) => {
 	var username = req.username
+	var displayName = req.body.displayName
 	var text = req.body.text
 	var commentId = req.body.commentId
-	var id = req.params.id
+	var id = req.body.id
+	var file = req.file
+
 	if(id) {
 		Post.find(ObjectId(id)).exec(function(err, articles) {
 			if(articles.length === 0) {
@@ -75,15 +58,18 @@ const updateArticle = (req, res) => {
 				return res.sendStatus(204)
 			}
 			if(commentId) {
-				if(commentId === -1) {
-					var comment = new Comment({ author: username, body: text, date: new Date() })
+				console.log("entered update comment, comment id:", commentId)
+				console.log("displayName", displayName)
+				if(commentId == "-1") {
+					var comment = new Comment({ author: username, displayName: displayName, body: text, date: new Date() })
 					articles[0].comments.push(comment)
 					articles[0].save(function(err) {
 						if(err) {
 							console.error(err)
 							return res.sendStatus(500)
 						}
-						return res.send({ articles: [ filter(articles[0]) ] })
+						console.log("new comment", comment)
+						return res.send({ comment: comment })
 					})
 				}
 				else {
@@ -100,16 +86,24 @@ const updateArticle = (req, res) => {
 							console.error(err)
 							return res.sendStatus(500)
 						}
-						if(articles[0].img) {
-							articles[0].img = articles[0].img.url
+						else {
+							return res.send({ comment: articles[0].comments[index] })
 						}
-							return res.send({ articles: [ filter(articles[0]) ]})
 					})
 				}
 			}
 			else {
 				if(articles[0].author !== username) {
 					return res.sendStatus(403)
+				}
+				var img = {}
+				if(file) {
+					img = {
+						url: cachePath + '/' + file.filename,
+						data: fs.readFileSync(cachePath + '/' + file.filename),
+						contentType: file.mimetype
+					}
+					articles[0].img = img
 				}
 				articles[0].body = text
 				articles[0].save(function(err) {
@@ -128,23 +122,66 @@ const updateArticle = (req, res) => {
 }
 
 const postArticle = (req, res) => {
+	console.log(req.body)
 	var username = req.username
 	var text = req.body.text
+	var author = req.body.disName
 	var file = req.file
 
-	var img = {
-		url: cachePath + '/' + file.filename,
-		data: fs.readFileSync(cachePath + '/' + file.filename),
-		contentType: file.mimetype
+	var img = {}
+	if(file) {
+		img = {
+			url: cachePath + '/' + file.filename,
+			data: fs.readFileSync(cachePath + '/' + file.filename),
+			contentType: file.mimetype
+		}
 	}
-	var newPost = new Post({ author: username, body: text, date: new Date(), img: img, comments: []})
+	var newPost = new Post({ author: username, displayName: author, body: text, date: new Date(), img: img, comments: []})
 	newPost.save(function(err) {
 		if(err) {
 			console.error(err)
 			return res.sendStatus(500)
 		}
 		else {
-			return res.send({ articles: [ filter(newPost) ]})
+			return res.send({ articles: [ newPost ]})
+		}
+	})
+}
+
+const deleteArticle = (req, res) => {
+	var id = req.params.id
+	Post.deleteOne({ _id: ObjectId(id) }, function(err) {
+		if(err) {
+			console.error(err)
+			return res.sendStatus(500)
+		}
+		else {
+			res.sendStatus(200)
+		}
+	})
+}
+
+const deleteComment = (req, res) => {
+	var username = req.username
+	var id = req.params.id
+	var commentID = req.params.commentID
+	Post.findOne(ObjectId(id), function(err, article) {
+		if(err) {
+			console.error(err)
+			return res.sendStatus(500)
+		}
+		else {
+			var commentIndex = article.comments.findIndex(comment => comment._id == commentID)
+			article.comments.splice(commentIndex, 1)
+			article.save(function(err, updated) {
+				if(err) {
+					console.error(err)
+					return res.sendStatus(500)
+				}
+				else {
+					return res.sendStatus(200)
+				}
+			})
 		}
 	})
 }
@@ -163,7 +200,9 @@ const filter = (rawArticle) => {
 
 
 module.exports = (app) => {
-	app.get('/articles/:id*?', getArticles)
-	app.put('/articles/:id', updateArticle)
-	app.post('/article', upload.single('postImg'), postArticle)
+	app.get('/articles', getArticles)
+	app.put('/article', upload.single('img'), updateArticle)
+	app.post('/article', upload.single('img'), postArticle)
+	app.delete('/article/:id', deleteArticle)
+	app.delete('/comment/:id/:commentID', deleteComment)
 }

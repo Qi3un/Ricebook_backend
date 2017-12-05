@@ -1,0 +1,6 @@
+--recursive
+--colors
+--timeout 10000
+--bail
+--reporter mocha-junit-reporter
+--reporter-options mochaFile=./junit/tests.xml

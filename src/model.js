@@ -5,7 +5,7 @@ require('./db.js')
 var imgSchema = new mongoose.Schema({ url: String, data: Buffer, contentType: String })
 
 var profileSchema = new mongoose.Schema({
-	username: String, follow: [ String ], avatar: imgSchema, email: String, zipcode: String, dob: String, headline: String
+	username: String, fbID: String, displayName: String, follow: [ String ], avatar: imgSchema, phone: String, email: String, zipcode: String, dob: String, headline: String
 })
 
 var userSchema = new mongoose.Schema({
@@ -17,11 +17,11 @@ var sessionUserSchema = new mongoose.Schema({
 })
 
 var commentSchema = new mongoose.Schema({
-	author: String, body: String, date: Date
+	author: String, displayName: String, body: String, date: Date
 })
 
 var postSchema = new mongoose.Schema({
-	author: String, body: String, date: Date, img: imgSchema, comments: [ commentSchema ]
+	author: String, displayName: String, body: String, date: Date, img: imgSchema, comments: [ commentSchema ]
 })
 
 exports.User = mongoose.model('user', userSchema)

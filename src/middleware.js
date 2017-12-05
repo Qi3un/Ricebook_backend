@@ -5,49 +5,90 @@ const cachePath = './upload_cache'
 const upload = multer({ dest: cachePath })
 const cookieKey = 'sid'
 const MAX_COOKIE = 20
+const loginUrl = "https://ricebook233.surge.sh/#/auth"
+const homeUrl = "http://ricebook233.surge.sh/#/article"
 
 const isLoggedIn = (req, res, next) => {
 	console.log("entered isLoggedIn")
-	// console.log(req.cookies)
-	var sid = ""
 	if(req.cookies) {
-		console.log("req.cookies", req.cookies)
+		var sid = ""
+		// console.log("req.cookies", req.cookies)
 		sid = req.cookies[cookieKey]
+		/* check sid first, because it has been cleared when logged out */
 		if(!sid) {
-			console.log("cookie expired")
-			return res.status(401).send("cookie expired")
+			/* if sid is invalid, try facebook authenticate */
+			if(req.isAuthenticated()) {
+				Profile.findOne({ fbID: req.user.id }, function(err, item) {
+					if(err) {
+						console.error(err)
+						return res.sendStatus(500)
+					}
+					else {
+						if(item) {
+							req.username = item.username
+							next()
+						}
+						else {
+							console.log("this should be a log out request")
+							console.log("fb not logged in: user reg -> user login -> user link -> user logout -> fb login -> fb unlink -> fb logout")
+							console.log("fb not logged in: user login -> link -> unlink ->link")
+							return res.sendStatus(200)
+						}
+					}
+				})
+			}
+			/* if neither works, redirect to login page */
+			else {
+				console.log("cookie expired")
+				// return res.status(401).send("cookie expired")
+				return res.redirect(loginUrl)
+			}
+		}
+		else {
+			/* if sid valid, find the corresponding session info */
+			SessionUser.find({sessionKey: sid}, function(err, items) {
+				if(err) {
+					console.error(err)
+					return
+				}
+				/* if session has been deleted due to LRU cache, redirect to login page */
+				else if(items.length === 0) {
+					// res.status(401).send("invalid cookie")
+					return res.redirect(loginUrl)
+					return
+				}
+				/* if session info found, set username for req */
+				else {
+					var username = items[0].username
+					req.username = username
+					next()
+				}
+			})
 		}
 	}
 	else {
 		console.log("no cookie")
-		return res.status(401).send("no cookie")
+		// return res.status(401).send("no cookie")
+		return res.redirect(loginUrl)
 	}
-
-	// console.log("sid", sid)
-
-	SessionUser.find({sessionKey: sid}, function(err, items) {
-		if(err) {
-			console.error(err)
-			return
-		}
-		else if(items.length === 0) {
-			res.status(401).send("invalid cookie")
-			return
-		}
-		else {
-			var username = items[0].username
-			req.username = username
-			next()
-		}
-	})
 }
 
 const enableCORS = (req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "http://localhost:*")
+	var allowedOrigins = ["https://localhost:4200", "https://www.facebook.com", "https://ricebook233.surge.sh", "ricebook233.surge.sh", "https://ricebook233-backend.herokuapp.com", "ricebook233-backend.herokuapp.com"]
+	var origin = req.headers.origin
+	// console.log("current origin", origin)
+	// if(allowedOrigins.indexOf(origin) > -1) {
+  		res.header("Access-Control-Allow-Origin", origin)
+  // }
   res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept");
   res.header("Access-Control-Allow-Credentials", true)
-  res.header("Access-Control-Allow-Methods", "GET, PUT, POST, DELETE")
-  next();
+  res.header("Access-Control-Allow-Methods", "GET, PUT, POST, DELETE, OPTIONS")
+  if(req.method == 'OPTIONS') {
+  	res.sendStatus(200)
+  }
+  else {
+  	next();
+  }
 }
 
 const manageCookie = (req, res, next) => {
@@ -78,5 +119,7 @@ module.exports = {
 	manageCookie: manageCookie,
 	cookieKey: cookieKey,
 	cachePath: cachePath,
-	upload: upload
+	upload: upload,
+	loginUrl: loginUrl,
+	homeUrl: homeUrl
 }

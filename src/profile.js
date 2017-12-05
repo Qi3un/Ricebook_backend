@@ -1,37 +1,14 @@
 const cachePath = require('./middleware.js').cachePath
 const upload = require('./middleware.js').upload
 const fs = require('fs')
+const md5 = require('md5')
 const isLoggedIn = require('./middleware.js').isLoggedIn
 const Profile = require('./model.js').Profile
+const User = require('./model.js').User
 const ObjectId = require('mongodb').ObjectId
 
 const headlineField = (req, res, next) => {
 	req.field = "headline"
-	next()
-}
-
-const emailField = (req, res, next) => {
-	req.field = "email"
-	next()
-}
-
-const zipcodeField = (req, res, next) => {
-	req.field = "zipcode"
-	next()
-}
-
-const dobField = (req, res, next) => {
-	req.field = "dob"
-	next()
-}
-
-const avatarField = (req, res, next) => {
-	req.field = "avatar"
-	next()
-}
-
-const followField = (req, res, next) => {
-	req.field = "follow"
 	next()
 }
 
@@ -75,65 +52,6 @@ const updateInfo = (req, res) => {
 	}
 }
 
-
-const getHeadline = (req, res) => {
-	Profile.find({username: req.username}, function(err, items) {
-		if(err) {
-			console.error(err)
-			res.sendStatus(500)
-			return
-		}
-		else {
-			res.send({ headline: items[0].headline })
-			return
-		}
-	})
-}
-
-const getHeadlines = (req, res) => {
-	console.log("users", req.params.users)
-	var users = req.params.users
-
-	if(!users) {
-		Profile.find(function(err, items) {
-			if(err) {
-				console.error(err)
-				res.sendStatus(500)
-				return
-			}
-			else {
-				var headlines = [];
-				items.map(p => headlines.push({ username: p.username, headline: p.headline }))
-				res.send({ headlines: headlines })
-				return
-			}
-		})
-	}
-	else {
-		var usernames = users.split(',')
-		var headlines = []
-		var count = 0
-		usernames.map(username => {
-			Profile.find({ username: username }, function(err, items) {
-				count++
-				if(err) {
-					console.error(err)
-					res.sendStatus(500)
-					return
-				}
-				else if(items.length !== 0) {
-					headlines.push({ username: items[0].username, headline: items[0].headline })
-					if(count === usernames.length) {
-						console.log("search complete")
-						res.send({ headlines: headlines })
-						return
-					}
-				}
-			})
-		})
-	}
-}
-
 const getInfo = (req, res) => {
 	var username = req.username
 	var id = req.params.user
@@ -168,7 +86,10 @@ const getInfo = (req, res) => {
 					}
 				}
 				if(count === ids.length) {
-					res.send(payloads)
+					if(field == 'avatar')
+						res.send({ avatar: payloads })
+					else
+						res.send(payload)
 					return
 				}
 			})
@@ -201,8 +122,90 @@ const getInfo = (req, res) => {
 	}
 }
 
-const uploadAvatar = (req, res) => {
+const updateProfile = (req, res) => {
 	var username = req.username
+	var displayName = req.body.disName
+	var email = req.body.email
+	var phone = req.body.phone
+	var zipcode = req.body.code
+	var password = req.body.pass
+	var file = req.file
+	var img = {}
+	if(file) {
+		img = {
+			url: cachePath + '/' + file.filename,
+			data: fs.readFileSync(cachePath + '/' + file.filename),
+			contentType: file.mimetype
+		}
+	}
+
+	Profile.findOne({ username: username }, function(err, item) {
+		if(err) {
+			console.error(err)
+			res.sendStatus(500)
+			return
+		}
+		else {
+			if(displayName) {
+				item.displayName = displayName
+			}
+			if(email) {
+				item.email = email
+			}
+			if(phone) {
+				item.phone = phone
+			}
+			if(zipcode) {
+				item.zipcode = zipcode
+			}
+			if(file) {
+				item.avatar.url = cachePath + '/' + req.file.filename
+				item.avatar.data = fs.readFileSync(cachePath + '/' + req.file.filename)
+				item.avatar.contentType = req.file.mimetype
+			}
+			item.save(function(err, updated) {
+				if(err) {
+					console.error(err)
+					return res.sendStatus(500)
+				}
+				else if(password) {
+					console.log("new password", password)
+					User.findOne({ username: username }, function(err, user) {
+						if(err) {
+							console.error(err)
+							return res.sendStatus(500)
+						}
+						else {
+							console.log("new password", password)
+							var salt = (Math.random() + 1).toString(36).substring(7)
+							var hash = md5(password + salt)
+							user.hash = hash
+							user.salt = salt
+							user.save(function(err, updated) {
+								if(err) {
+									console.error(err)
+									return res.sendStatus(500)
+								}
+								else {
+									console.log("password changed")
+									return res.sendStatus(200)
+								}
+							})
+						}
+					})
+				}
+				else {
+					return res.sendStatus(200)
+				}
+			})
+		}
+	})
+}
+
+const deleteFollow = (req, res) => {
+	var unfollowName = req.params.user
+	var username = req.username
+	console.log("delete name", unfollowName)
 	Profile.find({ username: username }, function(err, items) {
 		if(err) {
 			console.error(err)
@@ -210,69 +213,129 @@ const uploadAvatar = (req, res) => {
 			return
 		}
 		else {
-			items[0].avatar.url = cachePath + '\\' + req.file.filename
-			items[0].avatar.data = fs.readFileSync(cachePath + '\\' + req.file.filename)
-			items[0].avatar.contentType = req.file.mimetype
-			items[0].save()
-			res.send("uplad complete")
-			return
+			var index = items[0].follow.indexOf(unfollowName)
+			if(index > -1) {
+				items[0].follow.splice(index, 1)
+				items[0].save(function(err) {
+					if(err) {
+						console.error(err)
+						res.sendStatus(500)
+						return
+					}
+					else {
+						console.log("delete succeed")
+						var payload = { username: username, result: 'success' }
+						res.send(payload)
+						return
+					}
+				})
+			}
 		}
 	})
 }
 
-const deleteFollow = (req, res) => {
-	var id = req.params.user
+const getProfile = (req, res) => {
 	var username = req.username
-	if(id) {
-		Profile.find({ username: username }, function(err, items) {
-			if(err) {
-				console.error(err)
-				res.sendStatus(500)
-				return
-			}
-			else {
-				var index = items[0].follow.indexOf(id)
-				if(index > -1) {
-					items[0].follow.splice(index, 1)
-					items[0].save(function(err) {
-						if(err) {
-							console.error(err)
-							res.sendStatus(500)
-							return
-						}
-						else {
-							var payload = { username: username, following: items[0].follow }
-							res.send(payload)
-							return
-						}
-					})
-				}
-			}
-		})
-	}
+	Profile.find({ username: username }, function(err, items) {
+		if(err) {
+			console.error(err)
+			return res.sendStatus(500)
+		}
+		else {
+			var profile = items[0]
+			return res.send(items[0])
+		}
+	})
 }
 
+const constructFollow = (profile) => {
+	var follow = {}
+	follow.name = profile.username
+	follow.id = profile._id
+	follow.avatar = profile.avatar
+	follow.alt = "avatar of " + profile.displayName
+	follow.title = profile.displayName
+	follow.subTitle = profile.headline
+	return follow
+}
+
+/* return following user of current uer, in the form of class follow defined in follow.ts */
+const getFollow = (req, res) => {
+	var username = req.username
+	var follow = []
+	Profile.findOne({ username: username }, function(err, item) {
+		var followNum = item.follow.length
+		if(followNum) {
+			var count = 0
+			console.log("following for " + username, item.follow)
+			item.follow.map(user => {
+				Profile.findOne({ username: user }, function(err, item) {
+					count = count + 1
+					if(item) {
+						follow.push(constructFollow(item))
+					}
+					if(count === followNum) {
+						return res.send({ username: username, follow: follow })
+					}
+				})
+			})
+		}
+		else {
+			res.send({ username: username, follow: follow })
+		}
+	})
+}
+
+const addFollow = (req, res, next) => {
+	var username = req.username
+	var follow = req.params.user
+	console.log("entered addFollow")
+	console.log("new follow", follow)
+	Profile.find({ username: follow }, function(err, items) {
+		if(err) {
+			console.error(err)
+			return res.sendStatus(500)
+		}
+		else if(items.length == 0) {
+			return res.status(202).send("Sorry, user not found.")
+		}
+		else {
+			Profile.findOne({ username: username }, function(err, item) {
+				if(err) {
+					console.error(err)
+					return res.sendStatus(500)
+				}
+				else {
+					if(item.follow.find(element => element === follow)) {
+						return res.status(202).send("Duplicate following.")
+					}
+					else {
+						item.follow.push(follow)
+						item.save(function(err, updatedItem) {
+							if(err) {
+								console.error(err)
+								return res.sendStatus(500)
+							}
+							else {
+								console.log("updated follow", updatedItem)
+								next()
+							}
+						})
+					}
+				}
+			})
+		}
+	})
+}
 
 module.exports = (app) => {
+	app.get('/profile', getProfile)
+	app.get('/follow', getFollow)
+	app.put('/follow/:user', addFollow, getFollow)
+	app.delete('/follow/:user', deleteFollow)
 	app.put('/headline', headlineField, updateInfo)
-	app.get('/headlines', getHeadline)
-	app.get('/headlines/:users?', getHeadlines)
-
-	app.put('/email', emailField, updateInfo)
-	app.get('/email/:user', emailField, getInfo)
-
-	app.put('/zipcode', zipcodeField, updateInfo)
-	app.get('/zipcode/:user', zipcodeField, getInfo)
-
-	app.get('/dob', dobField, getInfo)
-
- 	app.put('/avatar', upload.single('avatar'), uploadAvatar)
- 	app.get('/avatar/:user?', avatarField, getInfo)
-
- 	app.get('/following/:user?', followField, getInfo)
- 	app.put('/following/:user', followField, updateInfo)
- 	app.delete('/following/:user', deleteFollow)
-}
+ 	app.put('/profile', upload.single('avatar'), updateProfile)
+ }
 
 exports.cachePath = cachePath
 exports.upload = upload
