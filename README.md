@@ -2,6 +2,15 @@
 
 This is the backend of [Ricebook](http://ricebook233.surge.sh).
 
+# API Explanation
+	For users, I choose username as the unique identification. In registration, I will check the value of username in
+	database to ensure it to be unique. If a duplication is found, my server will return a nitification to user that s/
+	he needs to change the username to be registerred because of duplication. When a user logs in with facebook, I
+	use the facebook ID obtained by facebook api as his/her username to make it unique.
+
+	For articles, I choose the automatically produced ID in MongoDB as the unique ID. As MongoDB has done the ensuring
+	unique issue for me, I can use it directly. And I do the same for the comments in each article.
+
 # Review
   	1. https://hz56hw6.surge.sh
   		a. CSS style not so good (color, layout, widgets)
